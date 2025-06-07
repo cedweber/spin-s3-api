@@ -1,36 +1,32 @@
 
 
-````
-Note:
-This is a alpha WIP repository. Current structures may change in the feature 
-````
+# Go-S3-Wrapper
+
+A wrapper module usable for communicating with a S3 compatible object storage via HTTP.
+Http client for request execution can be configured manually so that it could be used in a e.g. WebAssembly context.
+
+Prototype WASI-HTTP Interface: https://github.com/ydnar/wasi-http-go 
 
 
 ## Get Started
 
-To use the ``Spin S3 API``
 
-1. Import the module into your spin go components ``go.mod```
+1. Add the module to your ``go.mod``
 
 ````go
-require github.com/cedweber/spin-s3-api v0.0.0
+require github.com/cedweber/go-s3-wrapper
 ````
 
 
 2. Use the module within your logic
 
 ````go 
-s3 "github.com/cedweber/spin-s3-api"
+s3 "github.com/cedweber/go-s3-wrapper"
 ````
 
 
-3. Use the S3 API
-
-
-Create a new config and a client
-
+3. Use the module
 ````go
-
 	cfg := s3.Config{
 		Endpoint:  baseDomain,
 		AccessKey: accessKey,
@@ -45,12 +41,15 @@ Create a new config and a client
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
 ````
 
 Use the client to interact via REST with S3, e.g.
 
 ````go
+	bucketName := "my-bucket"
+	filePath := "my-file"
+	ctx := context.Background()
+
 	// Get http response from HEAD request
 	resp, err := s3Client.HeadObject(ctx, bucketName, filePath)
 	if err != nil {
@@ -183,13 +182,9 @@ The following operations are supported:
 - DeleteBucketMetadataTableConfiguration
 
 
-## Examples
-
-Examples can be found in the ``examples`` subfolder. 
-
-
-
 ## Contribution
-
 If you think something is missing or wrong feel free to contribute.
 
+
+## Credits
+Thanks and credits to [Fermyon](https://www.fermyon.com) for the support and the initial code base

@@ -8,14 +8,16 @@ import (
 	"time"
 )
 
+func (e ErrorResponse) Error() string {
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
+}
+
 // Config contains the available options for configuring a Client.
 type Config struct {
 	// S3 Access key ID
 	AccessKey string
 	// S3 Secret Access key
 	SecretKey string
-	// S3 Session Token
-	SessionToken string
 	// S3 region
 	Region string
 	// Endpoint is URL to the s3 service.
@@ -102,10 +104,6 @@ type ErrorResponse struct {
 	Message   string `xml:"Message"`
 	Resource  string `xml:"Resource"`
 	RequestID string `xml:"RequestId"`
-}
-
-func (e ErrorResponse) Error() string {
-	return fmt.Sprintf("%s: %s", e.Code, e.Message)
 }
 
 // https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListMultipartUploads.html#AmazonS3-ListMultipartUploads-response-ListMultipartUploadsOutput

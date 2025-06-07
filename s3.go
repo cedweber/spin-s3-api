@@ -15,19 +15,14 @@ import (
 	"time"
 )
 
-// S3 Client
-// Source From Fermyon Spin Go SDK : https://github.com/spinframework/spin-go-sdk
-// New creates a new Client.
-
+// default chunk size
 const chunkSize = 4096
 
-func (c *Client) buildContentHash(data []byte) (string, error) {
+// build
+func buildContentHash(data []byte) (string, error) {
 	hash := md5.Sum(data)
 	return base64.StdEncoding.EncodeToString(hash[:]), nil
 }
-
-// S3 Client
-// Source From Fermyon Spin Go SDK : https://github.com/spinframework/spin-go-sdk
 
 // New creates a new Client.
 func New(config Config, httpclient *http.Client) (*Client, error) {
@@ -60,7 +55,7 @@ func (c *Client) buildEndpoint(bucketName, path string, query map[string]string)
 	return u.JoinPath(path).String(), nil
 }
 
-func (c *Client) newRequestWithQuery(ctx context.Context, method, bucketName, path string, query map[string]string, body []byte) (*http.Request, error) {
+func (c *Client) newRequest(ctx context.Context, method, bucketName, path string, query map[string]string, body []byte) (*http.Request, error) {
 	now := time.Now().UTC()
 	endpointURL, err := c.buildEndpoint(bucketName, path, query)
 	if err != nil {
@@ -72,44 +67,17 @@ func (c *Client) newRequestWithQuery(ctx context.Context, method, bucketName, pa
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set the AWS authentication headers
-	// Some are required for STACKIT Object Storage
 	payloadHash := getPayloadHash(&body)
 	req.Header.Set("Authorization", getAuthorizationHeader(req, payloadHash, c.config.Region, c.config.AccessKey, c.config.SecretKey, now))
 	req.Header.Set("x-amz-content-sha256", payloadHash)
 	req.Header.Set("x-amz-date", now.Format(timeFormat))
 	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Content-Length", strconv.Itoa(len(body)))
-
-	return req, nil
-}
-
-func (c *Client) newRequest(ctx context.Context, method, bucketName, path string, body []byte) (*http.Request, error) {
-	endpointURL, err := c.buildEndpoint(bucketName, path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, endpointURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	now := time.Now().UTC()
-
-	// Set the AWS authentication headers
-	// Some are required for STACKIT Object Storage
-	payloadHash := getPayloadHash(&body)
-	req.Header.Set("Authorization", getAuthorizationHeader(req, payloadHash, c.config.Region, c.config.AccessKey, c.config.SecretKey, now))
-	req.Header.Set("x-amz-content-sha256", payloadHash)
-	req.Header.Set("x-amz-date", now.Format(timeFormat))
-	req.Header.Set("User-Agent", userAgent)
-
 	req.Header.Set("Content-Length", strconv.Itoa(len(body)))
 	return req, nil
 }
 
 func (c *Client) newRequestStream(ctx context.Context, method, bucketName, path string, body io.Reader) (*http.Request, error) {
+	now := time.Now().UTC()
 	endpointURL, err := c.buildEndpoint(bucketName, path, nil)
 	if err != nil {
 		return nil, err
@@ -120,35 +88,6 @@ func (c *Client) newRequestStream(ctx context.Context, method, bucketName, path 
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	now := time.Now().UTC()
-
-	// Set the AWS authentication headers
-	// Some are required for STACKIT Object Storage
-	req.Header.Set("Authorization", getAuthorizationHeader(req, "UNSIGNED-PAYLOAD", c.config.Region, c.config.AccessKey, c.config.SecretKey, now))
-	req.Header.Set("x-amz-content-sha256", "UNSIGNED-PAYLOAD")
-	req.Header.Set("x-amz-date", now.Format(timeFormat))
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Content-Type", "application/octet-stream")
-
-	return req, nil
-}
-
-func (c *Client) newRequestStreamParts(ctx context.Context, method, bucketName, path string, partNumber int, uploadId string, body io.Reader) (*http.Request, error) {
-	endpointURL, err := c.buildEndpoint(bucketName, path, nil)
-	if err != nil {
-		return nil, err
-	}
-	endpointURLVersion := fmt.Sprintf("%s?partNumber=%d&uploadId=%s", endpointURL, partNumber, uploadId)
-
-	req, err := http.NewRequestWithContext(ctx, method, endpointURLVersion, body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	now := time.Now().UTC()
-
-	// Set the AWS authentication headers
-	// Some are required for STACKIT Object Storage
 	req.Header.Set("Authorization", getAuthorizationHeader(req, "UNSIGNED-PAYLOAD", c.config.Region, c.config.AccessKey, c.config.SecretKey, now))
 	req.Header.Set("x-amz-content-sha256", "UNSIGNED-PAYLOAD")
 	req.Header.Set("x-amz-date", now.Format(timeFormat))
@@ -182,7 +121,7 @@ func (c *Client) do(req *http.Request) (*http.Response, error) {
 // Create a bucket
 // https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateBucket.html
 func (c *Client) CreateBucket(ctx context.Context, name string) error {
-	req, err := c.newRequest(ctx, http.MethodPut, "", name, nil)
+	req, err := c.newRequest(ctx, http.MethodPut, "", name, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -196,7 +135,7 @@ func (c *Client) CreateBucket(ctx context.Context, name string) error {
 // https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListBuckets.html
 func (c *Client) ListBuckets(ctx context.Context) (*ListBucketsResponse, error) {
 	var results ListBucketsResponse
-	req, err := c.newRequest(ctx, http.MethodGet, "", "", nil)
+	req, err := c.newRequest(ctx, http.MethodGet, "", "", nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +159,7 @@ func (c *Client) ListBuckets(ctx context.Context) (*ListBucketsResponse, error) 
 // https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjects.html
 func (c *Client) ListObjects(ctx context.Context, bucketName string) (*ListObjectsResponse, error) {
 	var results ListObjectsResponse
-	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +183,7 @@ func (c *Client) ListObjects(ctx context.Context, bucketName string) (*ListObjec
 // https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html
 func (c *Client) ListObjectsV2(ctx context.Context, bucketName string, query map[string]string) (*ListObjectsResponse, error) {
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +215,7 @@ func (c *Client) ListObjectVersions(ctx context.Context, bucketName string, quer
 
 	query["versions"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +238,7 @@ func (c *Client) ListObjectVersions(ctx context.Context, bucketName string, quer
 // HeadObject get object metadata, in this case the file size
 // https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html
 func (c *Client) HeadObject(ctx context.Context, bucketName string, objectName string) (*http.Response, error) {
-	req, err := c.newRequest(ctx, http.MethodHead, bucketName, objectName, nil)
+	req, err := c.newRequest(ctx, http.MethodHead, bucketName, objectName, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +255,7 @@ func (c *Client) HeadObject(ctx context.Context, bucketName string, objectName s
 // GetObject fetches an object.
 // https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html
 func (c *Client) GetObject(ctx context.Context, bucketName, objectName string) (io.ReadCloser, error) {
-	req, err := c.newRequest(ctx, http.MethodGet, bucketName, objectName, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, objectName, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +271,7 @@ func (c *Client) GetObject(ctx context.Context, bucketName, objectName string) (
 // GetObject fetches an object.
 // https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html
 func (c *Client) GetObjectPart(ctx context.Context, bucketName, objectName string, start int, end int) (io.ReadCloser, error) {
-	req, err := c.newRequest(ctx, http.MethodGet, bucketName, objectName, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, objectName, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -350,7 +289,7 @@ func (c *Client) GetObjectPart(ctx context.Context, bucketName, objectName strin
 // PutObject uploads an object to the specified bucket.
 // https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html
 func (c *Client) PutObject(ctx context.Context, bucketName, objectName string, data []byte) error {
-	req, err := c.newRequest(ctx, http.MethodPut, bucketName, objectName, data)
+	req, err := c.newRequest(ctx, http.MethodPut, bucketName, objectName, nil, data)
 	if err != nil {
 		return err
 	}
@@ -397,7 +336,7 @@ func (c *Client) DeleteObject(ctx context.Context, bucketName, objectName string
 		query["versionId"] = versionId
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodDelete, bucketName, objectName, query, nil)
+	req, err := c.newRequest(ctx, http.MethodDelete, bucketName, objectName, query, nil)
 	if err != nil {
 		return err
 	}
@@ -423,12 +362,12 @@ func (c *Client) DeleteObjects(ctx context.Context, bucketName string, objects D
 		return nil, err
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodDelete, bucketName, "", query, data)
+	req, err := c.newRequest(ctx, http.MethodDelete, bucketName, "", query, data)
 	if err != nil {
 		return nil, err
 	}
 
-	hash, err := c.buildContentHash(data)
+	hash, err := buildContentHash(data)
 	if err != nil {
 		return nil, err
 	}
@@ -453,7 +392,7 @@ func (c *Client) CreateMultipartUpload(ctx context.Context, bucketName string, f
 	query := make(map[string]string)
 	query["uploads"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodPost, bucketName, filePath, query, nil)
+	req, err := c.newRequest(ctx, http.MethodPost, bucketName, filePath, query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -477,7 +416,11 @@ func (c *Client) CreateMultipartUpload(ctx context.Context, bucketName string, f
 // https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPart.html
 func (c *Client) UploadPart(ctx context.Context, bucketName string, objectName string, data io.Reader, size int, partNumber int, uploadId string) (string, error) {
 
-	req, err := c.newRequestStreamParts(ctx, http.MethodPut, bucketName, objectName, partNumber, uploadId, data)
+	query := make(map[string]string)
+	query["partNumber"] = string(uploadId)
+	query["uploadId"] = uploadId
+
+	req, err := c.newRequestStream(ctx, http.MethodPut, bucketName, objectName, data)
 	if err != nil && err != io.EOF {
 		return "", err
 	}
@@ -509,7 +452,7 @@ func (c *Client) CompleteMultipartUpload(ctx context.Context, bucketName string,
 		fmt.Printf("Error parsing response: %v", xmlData)
 	}
 
-	endReq, err := c.newRequestWithQuery(ctx, http.MethodPost, bucketName, objectName, query, xmlData)
+	endReq, err := c.newRequest(ctx, http.MethodPost, bucketName, objectName, query, xmlData)
 	if err != nil {
 		return err
 	}
@@ -534,7 +477,7 @@ func (c *Client) ListMultipartUploads(ctx context.Context, bucketName string, qu
 
 	query["uploads"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -567,7 +510,7 @@ func (c *Client) AbortMultipartUpload(ctx context.Context, bucketName string, fi
 	query := make(map[string]string)
 	query["uploadId"] = uploadId
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodDelete, bucketName, filePath, query, nil)
+	req, err := c.newRequest(ctx, http.MethodDelete, bucketName, filePath, query, nil)
 	if err != nil {
 		return err
 	}
@@ -591,7 +534,7 @@ func (c *Client) ListParts(ctx context.Context, bucketName string, filePath stri
 	query["uploadId"] = uploadId
 
 	var listPartsResult ListPartsResult
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, filePath, query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, filePath, query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -626,7 +569,7 @@ func (c *Client) GetObjectTagging(ctx context.Context, bucketName string, filePa
 		query["versionId"] = versionId
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, filePath, query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, filePath, query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -660,7 +603,7 @@ func (c *Client) PutObjectTagging(ctx context.Context, bucketName string, filePa
 		return "", err
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodPut, bucketName, filePath, query, data)
+	req, err := c.newRequest(ctx, http.MethodPut, bucketName, filePath, query, data)
 	if err != nil {
 		return "", err
 	}
@@ -689,7 +632,7 @@ func (c *Client) DeleteObjectTagging(ctx context.Context, bucketName string, fil
 		query["versionId"] = versionId
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodDelete, bucketName, filePath, query, nil)
+	req, err := c.newRequest(ctx, http.MethodDelete, bucketName, filePath, query, nil)
 	if err != nil {
 		return err
 	}
@@ -713,7 +656,7 @@ func (c *Client) GetObjectAttributes(ctx context.Context, bucketName string, fil
 
 	query["attributes"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, filePath, query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, filePath, query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -740,7 +683,7 @@ func (c *Client) GetObjectAttributes(ctx context.Context, bucketName string, fil
 func (c *Client) ListDirectoryBuckets(ctx context.Context, query map[string]string) (*ListAllMyDirectoryBucketsResult, error) {
 	var list ListAllMyDirectoryBucketsResult
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, "", "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, "", "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -771,7 +714,7 @@ func (c *Client) GetBucketWebsite(ctx context.Context, bucketName string) (*Webs
 	query := make(map[string]string)
 	query["website"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -803,12 +746,12 @@ func (c *Client) PutBucketWebsite(ctx context.Context, bucketName string, config
 		return err
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodPut, bucketName, "", nil, data)
+	req, err := c.newRequest(ctx, http.MethodPut, bucketName, "", nil, data)
 	if err != nil {
 		return err
 	}
 
-	hash, err := c.buildContentHash(data)
+	hash, err := buildContentHash(data)
 	if err != nil {
 		return err
 	}
@@ -828,7 +771,7 @@ func (c *Client) DeleteBucketWebsite(ctx context.Context, bucketName string) err
 	query := make(map[string]string)
 	query["website"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodDelete, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodDelete, bucketName, "", query, nil)
 	if err != nil {
 		return err
 	}
@@ -851,7 +794,7 @@ func (c *Client) GetBucketVersioning(ctx context.Context, bucketName string) (*V
 	query := make(map[string]string)
 	query["versioning"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -880,12 +823,12 @@ func (c *Client) PutBucketVersioning(ctx context.Context, bucketName string, ver
 		return err
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodPut, bucketName, "", query, data)
+	req, err := c.newRequest(ctx, http.MethodPut, bucketName, "", query, data)
 	if err != nil {
 		return err
 	}
 
-	hash, err := c.buildContentHash(data)
+	hash, err := buildContentHash(data)
 	if err != nil {
 		return err
 	}
@@ -908,7 +851,7 @@ func (c *Client) GetBucketTagging(ctx context.Context, bucketName string) (*Tagg
 	query := make(map[string]string)
 	query["tagging"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -937,12 +880,12 @@ func (c *Client) PutBucketTagging(ctx context.Context, bucketName string, taggin
 		return "", err
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodPut, bucketName, "", query, data)
+	req, err := c.newRequest(ctx, http.MethodPut, bucketName, "", query, data)
 	if err != nil {
 		return "", err
 	}
 
-	hash, err := c.buildContentHash(data)
+	hash, err := buildContentHash(data)
 	if err != nil {
 		return "", err
 	}
@@ -963,7 +906,7 @@ func (c *Client) DeleteBucketTagging(ctx context.Context, bucketName string) err
 	query := make(map[string]string)
 	query["tagging"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodDelete, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodDelete, bucketName, "", query, nil)
 	if err != nil {
 		return err
 	}
@@ -990,12 +933,12 @@ func (c *Client) PutObjectLockConfiguration(ctx context.Context, bucketName stri
 		return err
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodPut, bucketName, filePath, query, data)
+	req, err := c.newRequest(ctx, http.MethodPut, bucketName, filePath, query, data)
 	if err != nil {
 		return err
 	}
 
-	hash, err := c.buildContentHash(data)
+	hash, err := buildContentHash(data)
 	if err != nil {
 		return err
 	}
@@ -1016,7 +959,7 @@ func (c *Client) GetObjectLockConfiguration(ctx context.Context, bucketName stri
 	query := make(map[string]string)
 	query["object-lock"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1044,7 +987,7 @@ func (c *Client) GetObjectRetention(ctx context.Context, bucketName string, file
 	query := make(map[string]string)
 	query["retention"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1073,12 +1016,12 @@ func (c *Client) PutObjectRetention(ctx context.Context, bucketName string, file
 		return err
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodPut, bucketName, "", query, data)
+	req, err := c.newRequest(ctx, http.MethodPut, bucketName, "", query, data)
 	if err != nil {
 		return err
 	}
 
-	hash, err := c.buildContentHash(data)
+	hash, err := buildContentHash(data)
 	if err != nil {
 		return err
 	}
@@ -1103,7 +1046,7 @@ func (c *Client) GetObjectAcl(ctx context.Context, bucketName string, filePath s
 		query["versionId"] = versionId
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, filePath, query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, filePath, query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1132,12 +1075,12 @@ func (c *Client) PutObjectAcl(ctx context.Context, bucketName string, filePath s
 		return "", err
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodPut, bucketName, filePath, query, data)
+	req, err := c.newRequest(ctx, http.MethodPut, bucketName, filePath, query, data)
 	if err != nil {
 		return "", err
 	}
 
-	hash, err := c.buildContentHash(data)
+	hash, err := buildContentHash(data)
 	if err != nil {
 		return "", err
 	}
@@ -1160,7 +1103,7 @@ func (c *Client) GetBucketAcl(ctx context.Context, bucketName string, filePath s
 	query := make(map[string]string)
 	query["acl"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1189,7 +1132,7 @@ func (c *Client) PutBucketAcl(ctx context.Context, bucketName string, policy Acc
 		return err
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodPut, bucketName, "", query, data)
+	req, err := c.newRequest(ctx, http.MethodPut, bucketName, "", query, data)
 	if err != nil {
 		return err
 	}
@@ -1211,7 +1154,7 @@ func (c *Client) GetBucketLogging(ctx context.Context, bucketName string) (*Buck
 	query := make(map[string]string)
 	query["logging"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1240,7 +1183,7 @@ func (c *Client) PutBucketLogging(ctx context.Context, bucketName string, config
 		return err
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodPut, bucketName, "", query, data)
+	req, err := c.newRequest(ctx, http.MethodPut, bucketName, "", query, data)
 	if err != nil {
 		return err
 	}
@@ -1262,7 +1205,7 @@ func (c *Client) GetPublicAccessBlock(ctx context.Context, bucketName string) (*
 	query := make(map[string]string)
 	query["publicAccessBlock"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1291,12 +1234,12 @@ func (c *Client) PutPublicAccessBlock(ctx context.Context, bucketName string, co
 		return err
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodPut, bucketName, "", query, data)
+	req, err := c.newRequest(ctx, http.MethodPut, bucketName, "", query, data)
 	if err != nil {
 		return err
 	}
 
-	hash, err := c.buildContentHash(data)
+	hash, err := buildContentHash(data)
 	if err != nil {
 		return err
 	}
@@ -1316,7 +1259,7 @@ func (c *Client) DeletePublicAccessBlock(ctx context.Context, bucketName string)
 	query := make(map[string]string)
 	query["publicAccessBlock"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodDelete, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodDelete, bucketName, "", query, nil)
 	if err != nil {
 		return err
 	}
@@ -1338,7 +1281,7 @@ func (c *Client) GetBucketNotificationConfiguration(ctx context.Context, bucketN
 	query := make(map[string]string)
 	query["notification"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1366,7 +1309,7 @@ func (c *Client) PutBucketNotificationConfiguration(ctx context.Context, bucketN
 	if err != nil {
 		return err
 	}
-	req, err := c.newRequestWithQuery(ctx, http.MethodPut, bucketName, "", query, data)
+	req, err := c.newRequest(ctx, http.MethodPut, bucketName, "", query, data)
 	if err != nil {
 		return err
 	}
@@ -1389,7 +1332,7 @@ func (c *Client) GetBucketMetricsConfiguration(ctx context.Context, bucketName s
 	query["metrics"] = ""
 	query["id"] = id
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1418,7 +1361,7 @@ func (c *Client) ListBucketMetricsConfigurations(ctx context.Context, bucketName
 		query["continuation-token"] = continuationToken
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1447,7 +1390,7 @@ func (c *Client) PutBucketMetricsConfiguration(ctx context.Context, bucketName s
 	if err != nil {
 		return err
 	}
-	req, err := c.newRequestWithQuery(ctx, http.MethodPut, bucketName, "", query, data)
+	req, err := c.newRequest(ctx, http.MethodPut, bucketName, "", query, data)
 	if err != nil {
 		return err
 	}
@@ -1468,7 +1411,7 @@ func (c *Client) DeleteBucketMetricsConfiguration(ctx context.Context, bucketNam
 	query["metrics"] = ""
 	query["id"] = id
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodDelete, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodDelete, bucketName, "", query, nil)
 	if err != nil {
 		return err
 	}
@@ -1495,7 +1438,7 @@ func (c *Client) GetObjectLegalHold(ctx context.Context, bucketName string, file
 		query["versionId"] = versionId
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, filePath, query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, filePath, query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1529,12 +1472,12 @@ func (c *Client) PutObjectLegalHold(ctx context.Context, bucketName string, file
 		query["versionId"] = versionId
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodPut, bucketName, filePath, query, data)
+	req, err := c.newRequest(ctx, http.MethodPut, bucketName, filePath, query, data)
 	if err != nil {
 		return err
 	}
 
-	hash, err := c.buildContentHash(data)
+	hash, err := buildContentHash(data)
 	if err != nil {
 		return err
 	}
@@ -1557,7 +1500,7 @@ func (c *Client) GetBucketPolicyStatus(ctx context.Context, bucketName string) (
 	query := make(map[string]string)
 	query["policyStatus"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1582,7 +1525,7 @@ func (c *Client) GetBucketPolicy(ctx context.Context, bucketName string) (*Bucke
 	query := make(map[string]string)
 	query["policy"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1611,12 +1554,12 @@ func (c *Client) PutBucketPolicy(ctx context.Context, bucketName string, policy 
 		return err
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodPut, bucketName, "", query, data)
+	req, err := c.newRequest(ctx, http.MethodPut, bucketName, "", query, data)
 	if err != nil {
 		return err
 	}
 
-	hash, err := c.buildContentHash(data)
+	hash, err := buildContentHash(data)
 	if err != nil {
 		return err
 	}
@@ -1636,7 +1579,7 @@ func (c *Client) DeleteBucketPolicy(ctx context.Context, bucketName string) erro
 	query := make(map[string]string)
 	query["policy"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodDelete, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodDelete, bucketName, "", query, nil)
 	if err != nil {
 		return err
 	}
@@ -1656,7 +1599,7 @@ func (c *Client) GetBucketLifecycleConfiguration(ctx context.Context, bucketName
 	query := make(map[string]string)
 	query["lifecycle"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1685,12 +1628,12 @@ func (c *Client) PutBucketLifecycleConfiguration(ctx context.Context, bucketName
 		return "", err
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodPut, bucketName, "", query, data)
+	req, err := c.newRequest(ctx, http.MethodPut, bucketName, "", query, data)
 	if err != nil {
 		return "", err
 	}
 
-	hash, err := c.buildContentHash(data)
+	hash, err := buildContentHash(data)
 	if err != nil {
 		return "", err
 	}
@@ -1710,7 +1653,7 @@ func (c *Client) DeleteBucketLifecycle(ctx context.Context, bucketName string) e
 	query := make(map[string]string)
 	query["lifecycle"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodDelete, bucketName, fmt.Sprintf("/v20180820/bucket/%s/lifecycleconfiguration", bucketName), query, nil)
+	req, err := c.newRequest(ctx, http.MethodDelete, bucketName, fmt.Sprintf("/v20180820/bucket/%s/lifecycleconfiguration", bucketName), query, nil)
 	if err != nil {
 		return err
 	}
@@ -1733,7 +1676,7 @@ func (c *Client) GetBucketMetadataTableConfiguration(ctx context.Context, bucket
 	query := make(map[string]string)
 	query["metadataTable"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodGet, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, bucketName, "", query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1763,12 +1706,12 @@ func (c *Client) CreateBucketMetadataTableConfiguration(ctx context.Context, buc
 		return err
 	}
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodPost, bucketName, "", query, data)
+	req, err := c.newRequest(ctx, http.MethodPost, bucketName, "", query, data)
 	if err != nil {
 		return err
 	}
 
-	hash, err := c.buildContentHash(data)
+	hash, err := buildContentHash(data)
 	if err != nil {
 		return err
 	}
@@ -1789,7 +1732,7 @@ func (c *Client) DeleteBucketMetadataTableConfiguration(ctx context.Context, buc
 	query := make(map[string]string)
 	query["metadataTable"] = ""
 
-	req, err := c.newRequestWithQuery(ctx, http.MethodDelete, bucketName, "", query, nil)
+	req, err := c.newRequest(ctx, http.MethodDelete, bucketName, "", query, nil)
 	if err != nil {
 		return err
 	}
